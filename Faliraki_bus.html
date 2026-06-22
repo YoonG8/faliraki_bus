@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faliraki Busz Központ</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            text-align: center;
+            padding: 15px;
+            margin: 0;
+        }
+        h1 { color: #ffb74d; margin-bottom: 5px; font-size: 24px; }
+        .info-box { color: #aaa; font-size: 14px; margin-bottom: 15px; background: #1e1e1e; padding: 8px; border-radius: 6px; }
+        
+        .section-title { font-size: 14px; text-transform: uppercase; color: #ffb74d; margin: 15px 0 5px 0; text-align: left; font-weight: bold;}
+        
+        /* Gombok görgethető sora mobilon, hogy ne foglaljon sok helyet */
+        .scroll-container {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+        }
+        .scroll-container::-webkit-scrollbar { height: 4px; }
+        .scroll-container::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+
+        button {
+            padding: 12px 18px;
+            font-size: 15px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background-color: #2a2a2a;
+            color: #fff;
+            white-space: nowrap;
+        }
+        button.active { background-color: #ffb74d; color: #000; }
+        
+        .dir-container { display: flex; gap: 8px; margin-bottom: 20px; }
+        .dir-container button { flex: 1; }
+
+        .next-bus-box {
+            background-color: #1e1e1e;
+            border: 2px solid #ffb74d;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .time-large { font-size: 52px; font-weight: bold; color: #ffb74d; margin: 10px 0; }
+        
+        .all-times {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .time-badge {
+            background-color: #2a2a2a;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .time-badge.past { opacity: 0.3; text-decoration: line-through; }
+        .time-badge.next { background-color: #ffb74d; color: #000; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Faliraki Busz Kalauz</h1>
+    <div id="price-info" class="info-box">Ár: -- | Érvényes: 2026.05.31-ig</div>
+
+    <div class="section-title">1. Válassz települést:</div>
+    <div class="scroll-container" id="dest-buttons">
+        </div>
+
+    <div class="section-title">2. Válassz irányt:</div>
+    <div class="dir-container">
+        <button id="btnOda" class="active" onclick="iranyValaszt('oda')">Faliraki -> Úticél</button>
+        <button id="btnVissza" onclick="iranyValaszt('vissza')">Úticél -> Faliraki</button>
+    </div>
+
+    <div class="next-bus-box">
+        <div id="direction-title">Következő busz:</div>
+        <div id="next-time" class="time-large">--:--</div>
+        <div id="countdown" style="color: #aaa;">Betöltés...</div>
+    </div>
+
+    <div class="section-title">A mai teljes menetrend:</div>
+    <div id="timetable-list" class="all-times"></div>
+
+    <script>
+        // Az új PDF alapján kibővített adatbázis (Faliraki központú)
+        const adatbazis = {
+            airport: {
+                nev: "Reptér (Airport)",
+                ar: "3.50€",
+                oda: ["07:00", "08:00", "09:00", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30", "16:30", "17:30", "19:00", "20:00", "21:00", "22:00", "23:00"],
+                vissza: ["07:30", "08:30", "09:30", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:30", "20:30", "21:30", "22:30", "23:30"]
+            },
+            rodos: {
+                nev: "Rodosz Város",
+                ar: "2.50€",
+                oda: ["06:35", "07:20", "08:25", "09:25", "10:20", "11:25", "12:25", "13:05", "13:50", "14:40", "15:25","15:55", "16:20", "17:20", "18:45", "20:00","20:40", "21:30"], 
+                vissza: ["06:15", "06:45", "09:00","09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "13:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "19:30", "21:30", "22:15", "23:00"]
+            },
+            lindos: {
+                nev: "Lindos",
+                ar: "4.50€",
+                oda: ["06:35", "07:05", "09:20", "09:55", "10:20", "10:55", "11:25", "11:50", "12:20", "13:20", "14:50", "15:55", "16:50", "18:20", "19:50", "21:50"],
+                vissza: [] // A menetrendből a visszaút (Lindos->Faliraki) nem szerepel külön, de bővíthető
+            },
+            lardos: {
+                nev: "Lardos",
+                ar: "4.50€",
+                oda: ["06:35", "07:05", "09:20", "10:20", "11:50", "13:20", "14:50", "16:50", "18:20", "19:50"],
+                vissza: [] // A menetrendből a visszaút (Lindos->Faliraki) nem szerepel külön, de bővíthető
+            },
+            tsambika: {
+                nev: "Tsambika",
+                ar: "2.50€",
+                oda: ["09:25", "10:55", "11:25", "15:20", ],
+                vissza: [] // A menetrendből a visszaút (Lindos->Faliraki) nem szerepel külön, de bővíthető
+            },
+            afantou: {
+                nev: "Afantou",
+                ar: "2.00€",
+                oda: ["06:35", "07:05", "09:20", "10:20", "11:50", "13:20", "14:50", "16:50", "18:20", "19:50", "21:50", "22:35"],
+                vissza: []
+            },
+            archangelos: {
+                nev: "Archangelos",
+                ar: "2.00€",
+                oda: ["06:35", "07:05", "09:20", "10:20", "11:50", "13:20", "14:56", "16:50", "18:20", "19:50", "21:50", "22:35"],
+                vissza: []
+            },
+            genadi: {
+                nev: "Genadi",
+                ar: "5.50€",
+                oda: ["06:35", "07:05", "09:20", "09:55", "10:20", "11:50", "14:50", "15:55", "16:50", "18:20", "19:50", "21:50"],
+                vissza: []
+            },
+            kolimbia: {
+                nev: "Kolimbia beach",
+                ar: "2.20€",
+                oda: ["09:20", "12:20", "14:50", "15:20", "15:50", "16:20", "17:20", "17:50", "19:50", "21:50", "22:35", "23:20"],
+                vissza: []
+            },
+            anthony: {
+                nev: "Anthony Quinn",
+                ar: "2.00€",
+                oda: ["10:55", "11:25", "13:55", "15:25"],
+                vissza: []
+            },
+            sevensprings: {
+                nev: "Seven Springs",
+                ar: "2.50€",
+                oda: ["10:55"],
+                vissza: []
+            },
+        };
+
+        let aktTelepules = 'rodos';
+        let aktIrany = 'oda';
+
+        // Település gombok legenerálása
+        function gombokLetrehozasa() {
+            const container = document.getElementById('dest-buttons');
+            Object.keys(adatbazis).forEach(kulcs => {
+                const btn = document.createElement('button');
+                btn.id = 'btn-' + kulcs;
+                btn.innerText = adatbazis[kulcs].nev;
+                btn.onclick = () => telepulesValaszt(kulcs);
+                container.appendChild(btn);
+            });
+            document.getElementById('btn-' + aktTelepules).classList.add('active');
+        }
+
+        function telepulesValaszt(kulcs) {
+            document.getElementById('btn-' + aktTelepules).classList.remove('active');
+            aktTelepules = kulcs;
+            document.getElementById('btn-' + aktTelepules).classList.add('active');
+            
+            // Feliratok igazítása az irány gombokon
+            document.getElementById('btnOda').innerText = `Faliraki -> ${adatbazis[kulcs].nev}`;
+            document.getElementById('btnVissza').innerText = `${adatbazis[kulcs].nev} -> Faliraki`;
+            
+            frissit();
+        }
+
+        function iranyValaszt(irany) {
+            aktIrany = irany;
+            document.getElementById('btnOda').classList.toggle('active', irany === 'oda');
+            document.getElementById('btnVissza').classList.toggle('active', irany === 'vissza');
+            frissit();
+        }
+
+        function frissit() {
+            const most = new Date();
+            const jelenlegiIdoStr = most.toTimeString().split(' ')[0].substring(0, 5);
+            
+            const adatok = adatbazis[aktTelepules];
+            const idopontok = adatok[aktIrany];
+            
+            document.getElementById('price-info').innerText = `Jegyár: ${adatok.ar} | Érvényes: 2026.05.31-ig`;
+            
+            // Cím beállítása
+            const teliNev = adatok.nev;
+            document.getElementById('direction-title').innerText = aktIrany === 'oda' ? `Következő busz ide: ${teliNev}` : `Következő busz Falirakiba (${teliNev} felől):`;
+
+            const listDiv = document.getElementById('timetable-list');
+            listDiv.innerHTML = '';
+            
+            let kovetkezoIdo = null;
+
+            if (!idopontok || idopontok.length === 0) {
+                document.getElementById('next-time').innerText = "--:--";
+                document.getElementById('countdown').innerText = "Ehhez az irányhoz nincs adat a PDF-ben.";
+                return;
+            }
+            
+            idopontok.forEach(ido => {
+                const badge = document.createElement('div');
+                badge.className = 'time-badge';
+                badge.innerText = ido;
+                
+                if (ido < jelenlegiIdoStr) {
+                    badge.classList.add('past');
+                } else if (!kovetkezoIdo) {
+                    kovetkezoIdo = ido;
+                    badge.classList.add('next');
+                }
+                
+                listDiv.appendChild(badge);
+            });
+
+            const idokijelzo = document.getElementById('next-time');
+            const visszaszamlalo = document.getElementById('countdown');
+
+            if (kovetkezoIdo) {
+                idokijelzo.innerText = kovetkezoIdo;
+                const [ora, perc] = kovetkezoIdo.split(':').map(Number);
+                const buszIdo = new Date();
+                buszIdo.setHours(ora, perc, 0, 0);
+                
+                const kulonbsegIdo = buszIdo - most;
+                const hatralevoPerc = Math.floor(kulonbsegIdo / 1000 / 60);
+                
+                if (hatralevoPerc > 60) {
+                    visszaszamlalo.innerText = `Indulás ${Math.floor(hatralevoPerc/60)} óra ${hatralevoPerc%60} perc múlva`;
+                } else {
+                    visszaszamlalo.innerText = `Indulás ${hatralevoPerc} perc múlva`;
+                }
+            } else {
+                idokijelzo.innerText = "--:--";
+                visszaszamlalo.innerText = "Ma már nem indul több busz ezen a vonalon.";
+            }
+        }
+
+        // Inicializálás
+        gombokLetrehozasa();
+        telepulesValaszt('rodos');
+        setInterval(frissit, 60000);
+    </script>
+</body>
+</html>
